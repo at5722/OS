@@ -1,5 +1,6 @@
 """Slack implementation of ChatClient."""
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 from chat_client_api.client import (
@@ -12,6 +13,18 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 _MESSAGE_ID_SEP = ":"
+
+
+def _slack_ts_to_utc_datetime(ts: str) -> datetime:
+    """Convert Slack's string timestamp to a timezone-aware UTC datetime."""
+    if not ts:
+        msg = "Slack timestamp string is empty"
+        raise ValueError(msg)
+    try:
+        return datetime.fromtimestamp(float(ts), tz=UTC)
+    except (TypeError, ValueError, OSError) as exc:
+        msg = f"Invalid Slack timestamp: {ts!r}"
+        raise ValueError(msg) from exc
 
 
 def _encode_message_id(channel: str, ts: str) -> str:
@@ -86,7 +99,7 @@ class SlackClient(ChatClient):
             channel=ch,
             text=text,
             sender="",
-            timestamp=ts,
+            timestamp=_slack_ts_to_utc_datetime(ts),
         )
 
     def get_channels(self) -> list[Channel]:
@@ -163,16 +176,21 @@ class SlackClient(ChatClient):
                     channel=channel_id,
                     limit=limit,
                 )
-            return [
-                Message(
-                    message_id=_encode_message_id(channel_id, str(msg.get("ts", ""))),
-                    channel=channel_id,
-                    text=str(msg.get("text", "")),
-                    sender=str(msg.get("user", "unknown")),
-                    timestamp=str(msg.get("ts", "")),
+            out: list[Message] = []
+            for msg in response["messages"]:
+                ts_str = str(msg.get("ts", ""))
+                if not ts_str:
+                    continue
+                out.append(
+                    Message(
+                        message_id=_encode_message_id(channel_id, ts_str),
+                        channel=channel_id,
+                        text=str(msg.get("text", "")),
+                        sender=str(msg.get("user", "unknown")),
+                        timestamp=_slack_ts_to_utc_datetime(ts_str),
+                    )
                 )
-                for msg in response["messages"]
-            ]
+            return out
         except SlackApiError:
             return []
 
@@ -208,7 +226,7 @@ class SlackClient(ChatClient):
                 channel=channel,
                 text=str(raw.get("text", "")),
                 sender=str(raw.get("user", "unknown")),
-                timestamp=ts,
+                timestamp=_slack_ts_to_utc_datetime(ts),
             )
         except SlackApiError as exc:
             msg = f"Message not found: {message_id}"

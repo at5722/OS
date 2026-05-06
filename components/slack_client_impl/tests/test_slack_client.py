@@ -1,5 +1,6 @@
 """Unit tests for Slack client implementation."""
 import os
+from datetime import UTC, datetime
 from typing import Any
 from unittest import mock
 
@@ -9,6 +10,7 @@ from slack_client_impl.client import (
     _create_slack_client,
     _decode_message_id,
     _encode_message_id,
+    _slack_ts_to_utc_datetime,
 )
 
 
@@ -42,6 +44,26 @@ def test_decode_message_id_invalid_format() -> None:
         _decode_message_id("nocolon")
 
 
+def test_slack_ts_to_utc_datetime() -> None:
+    """Slack ts strings should map to UTC datetimes."""
+    assert _slack_ts_to_utc_datetime("12345.678") == datetime.fromtimestamp(
+        12345.678,
+        tz=UTC,
+    )
+
+
+def test_slack_ts_to_utc_datetime_empty() -> None:
+    """Empty Slack ts should raise ValueError."""
+    with pytest.raises(ValueError, match="empty"):
+        _slack_ts_to_utc_datetime("")
+
+
+def test_slack_ts_to_utc_datetime_invalid() -> None:
+    """Non-numeric Slack ts should raise ValueError."""
+    with pytest.raises(ValueError, match="Invalid Slack timestamp"):
+        _slack_ts_to_utc_datetime("not-a-timestamp")
+
+
 # ---------------------------------------------------------------------------
 # send_message
 # ---------------------------------------------------------------------------
@@ -62,7 +84,7 @@ def test_send_message_success() -> None:
     ):
         result = client.send_message("C001", "Hello")
         assert result.channel == "C001"
-        assert result.timestamp == "12345.678"
+        assert result.timestamp == datetime.fromtimestamp(12345.678, tz=UTC)
         assert result.message_id == "C001:12345.678"
 
 
@@ -185,6 +207,7 @@ def test_get_messages_success() -> None:
         assert messages[0].text == "Hello"
         assert messages[0].sender == "U001"
         assert messages[0].message_id == "C001:12345.678"
+        assert messages[0].timestamp == datetime.fromtimestamp(12345.678, tz=UTC)
 
 
 def test_get_messages_with_cursor() -> None:
@@ -241,6 +264,7 @@ def test_get_message_success() -> None:
         assert msg.text == "Hello"
         assert msg.channel == "C001"
         assert msg.message_id == "C001:12345.678"
+        assert msg.timestamp == datetime.fromtimestamp(12345.678, tz=UTC)
 
 
 def test_get_message_not_found() -> None:
